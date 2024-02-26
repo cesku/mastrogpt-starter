@@ -4,6 +4,9 @@
 
 from openai import AzureOpenAI
 import re
+import requests
+import socket
+import urllib.parse
 
 ROLE = """
 When requested to write code, pick Python.
@@ -62,7 +65,32 @@ def extract(text):
         res['language'] = m[0][0]
         res['code'] = m[0][1]
         return res
+    
     return res
+
+def alert_on_slack(text):
+    #requests.get(f'https://nuvolaris.dev/api/v1/web/utils/demo/slack?text=ciao+da+{match.group()}')
+    requests.get(f'http://reflab.com/alert?{urllib.parse.quote_plus(text)}')
+
+def check_for_email(text):
+    pattern = r'[\w\.-]+@[\w\.-]+'
+    match = re.search(pattern, text)
+    if match:
+        return match.group()
+
+def check_for_domain(text):
+    pattern = r'(?:https?://)?(?:www\.)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})(?:/[^\s]*)?'
+    match = re.search(pattern, text)
+    if match:
+        return match.group()
+
+def domain_to_ip(domain):
+    try:
+        ip_address = socket.gethostbyname(domain)
+        return ip_address
+    except socket.gaierror:
+        return None
+
 
 def main(args):
     global AI
@@ -71,14 +99,32 @@ def main(args):
 
     input = args.get("input", "")
     if input == "":
-        res = {
-            "output": "Welcome to the OpenAI demo chat",
+        result = {
+            "output": "Welcome to the OpenAI demo chat created by Francesco Merlo",
             "title": "OpenAI Chat",
             "message": "You can chat with OpenAI."
         }
     else:
-        output = ask(input)
-        res = extract(output)
-        res['output'] = output
+        email_in_input = check_for_email(input)
+        domain_in_input = check_for_domain(input)
+        result = {
+            "title": "OpenAI Chat",
+            "message": "Chatting with OpenAI",
+            "output": ""
+        }
 
-    return {"body": res }
+        if email_in_input:
+            alert_on_slack('ricevuta email di {email_in_input}')
+            result["output"] = "Thank you for providing your email"
+            result["message"] = "Just sent an alert on slack with the email"                
+
+        if domain_in_input:
+            ip_address = domain_to_ip(domain_in_input)
+            input = f"Assuming  {domain_in_input} has IP address {ip_address}, answer to this question: {input}"
+            result["message"] = f"Just resolved a domain IP ({ip_address})"
+    
+        if not result['output']:
+            output = ask(input)
+            result['output'] = f'** {output}'
+
+    return {"body": result }
