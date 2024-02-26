@@ -31,46 +31,9 @@ def ask(input):
     return "ERROR"
 
 
-"""
-import re
-from pathlib import Path
-text = Path("util/test/chess.txt").read_text()
-text = Path("util/test/html.txt").read_text()
-text = Path("util/test/code.txt").read_text()
-"""
-def extract(text):
-    res = {}
-
-    # search for a chess position
-    pattern = r'(([rnbqkpRNBQKP1-8]{1,8}/){7}[rnbqkpRNBQKP1-8]{1,8} [bw] (-|K?Q?k?q?) (-|[a-h][36]) \d+ \d+)'
-    m = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
-    #print(m)
-    if len(m) > 0:
-        res['chess'] = m[0][0]
-        return res
-
-    # search for code
-    pattern = r"```(\w+)\n(.*?)```"
-    m = re.findall(pattern, text, re.DOTALL)
-    if len(m) > 0:
-        if m[0][0] == "html":
-            html = m[0][1]
-            # extract the body if any
-            pattern = r"<body.*?>(.*?)</body>"
-            m = re.findall(pattern, html, re.DOTALL)
-            if m:
-                html = m[0]
-            res['html'] = html
-            return res
-        res['language'] = m[0][0]
-        res['code'] = m[0][1]
-        return res
-    
-    return res
-
 def alert_on_slack(text):
-    #requests.get(f'https://nuvolaris.dev/api/v1/web/utils/demo/slack?text=ciao+da+{match.group()}')
-    requests.get(f'http://reflab.com/alert?{urllib.parse.quote_plus(text)}')
+    requests.get(f'https://nuvolaris.dev/api/v1/web/utils/demo/slack?text={urllib.parse.quote_plus(text)}')
+
 
 def check_for_email(text):
     pattern = r'[\w\.-]+@[\w\.-]+'
@@ -78,11 +41,24 @@ def check_for_email(text):
     if match:
         return match.group()
 
+
+def is_valid_email(email):
+    response = requests.get(
+        f'https://api.usebouncer.com/v1.1/email/verify?email={email}',
+        auth=('', 'ZnPBfGaYU27DsDyrb5BtZ5VQ5126l02daQhQjWJY'),
+    )
+    if response.ok:
+        data = response.json()
+        if data.get('status', '') == 'deliverable':
+            return True
+    return False
+
 def check_for_domain(text):
     pattern = r'(?:https?://)?(?:www\.)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})(?:/[^\s]*)?'
     match = re.search(pattern, text)
     if match:
         return match.group()
+
 
 def domain_to_ip(domain):
     try:
@@ -114,17 +90,22 @@ def main(args):
         }
 
         if email_in_input:
-            alert_on_slack('ricevuta email di {email_in_input}')
-            result["output"] = "Thank you for providing your email"
-            result["message"] = "Just sent an alert on slack with the email"                
+            if is_valid_email(email_in_input):
+                alert_on_slack(f'received email of {email_in_input}')
+                result["output"] = "Thank you for providing your email"
+                result["message"] = "Just sent an alert on slack with the email"                
+            else:
+                alert_on_slack(f'received FAKE email of {email_in_input}')
+                result["output"] = "You're trying to trick me, this email is FAKE"
+                result["message"] = "Just sent an alert on slack with the FAKE email"   
 
-        if domain_in_input:
+        elif domain_in_input:
+            alert_on_slack(f'getting info for domain {domain_in_input}')
             ip_address = domain_to_ip(domain_in_input)
             input = f"Assuming  {domain_in_input} has IP address {ip_address}, answer to this question: {input}"
             result["message"] = f"Just resolved a domain IP ({ip_address})"
     
         if not result['output']:
-            output = ask(input)
-            result['output'] = f'** {output}'
+            result['output'] = ask(input)
 
     return {"body": result }
